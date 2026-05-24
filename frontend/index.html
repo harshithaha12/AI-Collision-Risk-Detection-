@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PreCrash AI — V2V Digital Twin Simulation</title>
+  <meta name="description" content="Real-time V2V digital twin with Random Forest AI collision prediction. 10 vehicles, 4 lanes, live risk analytics." />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;900&family=Inter:wght@300;400;500;600&display=swap" />
+  <script src="https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<!-- ── 3D CANVAS ─────────────────────────────── -->
+<div id="canvas-container"></div>
+
+<!-- ── PER-CAR FLOATING LABELS ───────────────── -->
+<div id="car-labels" aria-hidden="true"></div>
+
+<!-- ── HIGH-RISK ALERT OVERLAY ───────────────── -->
+<div id="alert-overlay" class="hidden" role="alertdialog" aria-live="assertive">
+  <div id="alert-box">
+    <div id="alert-ring"></div>
+    <div id="alert-icon">⚠️</div>
+    <div id="alert-title">COLLISION RISK DETECTED</div>
+    <div id="alert-info"></div>
+    <button id="alert-dismiss" onclick="document.getElementById('alert-overlay').classList.add('hidden')">DISMISS</button>
+  </div>
+</div>
+
+<!-- ── TOP HUD BAR ────────────────────────────── -->
+<header id="top-bar">
+  <div id="top-logo">
+    <span class="tl-glyph">🛡️</span>
+    <div>
+      <span class="tl-name">PreCrash<span class="tl-accent">AI</span></span>
+      <span class="tl-sub">V2V Digital Twin</span>
+    </div>
+  </div>
+  <div id="top-stats">
+    <div class="hstat"><span class="hs-lbl">VEHICLES</span><span class="hs-val">10</span></div>
+    <div class="hstat danger"><span class="hs-lbl">HIGH RISK</span><span class="hs-val" id="stat-high-risk">0</span></div>
+    <div class="hstat warning"><span class="hs-lbl">ALERTS FIRED</span><span class="hs-val" id="stat-alerts">0</span></div>
+    <div class="hstat"><span class="hs-lbl">AI PREDICTIONS</span><span class="hs-val" id="stat-preds">0</span></div>
+  </div>
+</header>
+
+<!-- ── LEFT CONTROL PANEL ─────────────────────── -->
+<aside id="left-panel" class="gpanel">
+  <div class="brand-row">
+    <span class="br-icon">🛡️</span>
+    <div>
+      <div class="br-name">PreCrash AI</div>
+      <div class="br-sub">Predictive V2V System</div>
+    </div>
+  </div>
+
+  <div class="backend-row">
+    <span class="dot" id="dot"></span>
+    <span id="backend-status">Connecting to AI Engine…</span>
+  </div>
+  <div class="mini-stats">
+    <div class="mstat"><span>Predictions</span><span id="mpreds">0</span></div>
+    <div class="mstat"><span>V2V Links</span><span id="mlinks">0</span></div>
+  </div>
+
+  <hr class="div" />
+
+  <div class="cgroup">
+    <div class="clabel">CAMERA MODE</div>
+    <div class="brow">
+      <button class="bmode active" id="btn-overview" onclick="setCamera('overview')">🌍 Top</button>
+      <button class="bmode" id="btn-pov" onclick="setCamera('pov')">🎮 POV</button>
+      <button class="bmode" id="btn-chase" onclick="setCamera('chase')">🚗 Chase</button>
+    </div>
+  </div>
+
+  <div class="cgroup">
+    <div class="clabel">WEATHER CONDITION</div>
+    <div class="brow">
+      <button class="bwth active" id="w-clear" onclick="setWeather(0)">☀️ Clear</button>
+      <button class="bwth" id="w-rain" onclick="setWeather(1)">🌧️ Rain</button>
+      <button class="bwth" id="w-fog" onclick="setWeather(2)">🌫️ Fog</button>
+    </div>
+  </div>
+
+  <div class="cgroup">
+    <div class="clabel">EGO CAR SPEED <span class="clval" id="ego-spd-val">80 km/h</span></div>
+    <input type="range" class="slider" id="ego-spd" min="20" max="140" value="80" oninput="setEgoSpeed(this.value)" />
+  </div>
+
+  <div class="cgroup">
+    <div class="clabel">SIM SPEED <span class="clval" id="sim-spd-val">1.0×</span></div>
+    <input type="range" class="slider" id="sim-spd" min="0.3" max="3" step="0.1" value="1" oninput="setSimSpeed(this.value)" />
+  </div>
+
+  <hr class="div" />
+
+  <div class="bcol">
+    <button class="bprimary" onclick="resetSim()">🔄 Reset Simulation</button>
+    <button class="bsecondary" id="btn-sound" onclick="toggleSound()">🔊 Sound ON</button>
+    <button class="bsecondary" id="btn-labels" onclick="toggleLabels()">🏷️ Labels ON</button>
+  </div>
+</aside>
+
+<!-- ── RIGHT DASHBOARD PANEL ──────────────────── -->
+<aside id="right-panel" class="gpanel">
+
+  <!-- Lane Average Speeds → top-right as required -->
+  <div class="cgroup" id="lane-speed-section">
+    <div class="clabel">⚡ LANE AVG SPEEDS</div>
+    <div id="lane-speeds"></div>
+  </div>
+
+  <hr class="div" />
+
+  <!-- Risk Gauge -->
+  <div class="cgroup">
+    <div class="clabel">MAX COLLISION RISK</div>
+    <div class="gauge-wrap">
+      <canvas id="risk-gauge" width="210" height="120"></canvas>
+      <div id="risk-pct">0.0%</div>
+      <div id="risk-badge" class="rbadge safe">🟢 SAFE</div>
+    </div>
+  </div>
+
+  <hr class="div" />
+
+  <!-- V2V Comms Log -->
+  <div class="cgroup">
+    <div class="clabel">📡 V2V COMMS LOG</div>
+    <div id="v2v-log"><div class="v2v-ph">Awaiting V2V broadcasts…</div></div>
+  </div>
+
+  <hr class="div" />
+
+  <!-- Risk History Chart -->
+  <div class="cgroup">
+    <div class="clabel">📊 RISK TIMELINE</div>
+    <canvas id="risk-chart"></canvas>
+  </div>
+</aside>
+
+<!-- ── BOTTOM FEATURE IMPORTANCE PANEL ───────── -->
+<div id="bottom-panel" class="gpanel">
+  <div class="clabel">🧠 AI FEATURE IMPORTANCE — Random Forest Regression Model</div>
+  <canvas id="feat-chart"></canvas>
+</div>
+
+<script src="script.js"></script>
+</body>
+</html>
